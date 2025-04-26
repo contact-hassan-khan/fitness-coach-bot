@@ -2,6 +2,9 @@
 venv/
 __pycache__/
 
+# Ignore environment variables
+.env
+
 # Ignore Firebase service account key
 serviceAccountKey.json
 
