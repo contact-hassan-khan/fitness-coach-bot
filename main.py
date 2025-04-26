@@ -1,4 +1,5 @@
 from telegram import Update
+from firebase_admin import firestore
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -55,12 +56,84 @@ async def save_user_data(update: Update, context):
         'age': context.user_data['age'],
         'gender': context.user_data['gender'],
         'goal': goal,
-        'timestamp': db.SERVER_TIMESTAMP
+        'timestamp': firestore.SERVER_TIMESTAMP
     }
     db.collection('users').document(user_id).set(user_data)
     await update.message.reply_text("Profile saved! Use /workout for your plan.")
     return ConversationHandler.END
 
+
+# Workout command
+async def workout(update: Update, context):
+    user_id = str(update.message.from_user.id)
+    user_doc = db.collection('users').document(user_id).get()
+
+    if not user_doc.exists:
+        await update.message.reply_text("Please complete onboarding with /start first.")
+        return
+
+    user_data = user_doc.to_dict()
+    goal = user_data.get('goal')
+    
+    if not goal:
+        await update.message.reply_text("No fitness goal set. Please complete onboarding. /start")
+        return
+
+    # Generate workout based on goal
+    if goal == 'lose_weight':
+        plan = """
+        *Weight Loss Workout*  
+        - 30 min brisk walk/jog  
+        - 3 sets of 15 squats  
+        - 3 sets of 10 push-ups (knees optional)  
+        - 3 sets of 20 jumping jacks  
+        - [Video Demo](https://youtu.be/example)
+        """
+    elif goal == 'gain_muscle':
+        plan = """
+        *Muscle Building Workout*  
+        - 5 sets of 8 barbell squats  
+        - 4 sets of 10 bench presses  
+        - 4 sets of 12 pull-ups  
+        - 3 sets of 15 deadlifts  
+        - [Video Demo](https://youtu.be/example)
+        """
+    else:
+        plan = """
+        *Maintenance Workout*  
+        - 20 min yoga/stretching  
+        - 3 sets of 12 lunges  
+        - 3 sets of 15 planks (30 sec hold)  
+        - 2 sets of 20 mountain climbers  
+        - [Video Demo](https://youtu.be/example)
+        """
+
+    await update.message.reply_text(plan, parse_mode='Markdown')
+# Log workout command
+async def log_workout(update: Update, context):
+    user_id = str(update.message.from_user.id)
+    user_doc = db.collection('users').document(user_id).get()
+
+    if not user_doc.exists:
+        await update.message.reply_text("Please complete onboarding with /start first.")
+        return
+
+    # Log workout to Firestore
+    log_entry = {
+        'timestamp': db.SERVER_TIMESTAMP,
+        'workout': ' '.join(context.args) if context.args else 'No details provided'
+    }
+    db.collection('users').document(user_id).collection('workout_logs').add(log_entry)
+    await update.message.reply_text("Workout logged successfully!")
+
+# Stats command
+async def stats(update: Update, context):
+    user_id = str(update.message.from_user.id)
+    logs = db.collection('users').document(user_id).collection('workout_logs').stream()
+
+    total_workouts = sum(1 for _ in logs)
+    await update.message.reply_text(f"You've logged *{total_workouts} workouts*!", parse_mode='Markdown')
+    
 # Cancel command
 async def cancel(update: Update, context):
     await update.message.reply_text("Onboarding canceled.")
@@ -81,9 +154,13 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-
+    
+    application.add_handler(CommandHandler('workout', workout)) # Workout command
+    application.add_handler(CommandHandler('log', log_workout)) # Log workout command
+    application.add_handler(CommandHandler('stats', stats)) # Stats command
     application.add_handler(conv_handler)
     application.run_polling()
+    
 
 if __name__ == "__main__":
     main()
